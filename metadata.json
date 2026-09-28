@@ -1,0 +1,6 @@
+{
+  "name": "HirePulse — Career & Internship Portal",
+  "description": "A modern job and internship portal featuring smart filtering, AI-powered skill matching, job seeker tracking dashboards, and employer job posting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

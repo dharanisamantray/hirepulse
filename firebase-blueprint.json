@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Stores job seeker and employer profile details, skills, and saved job IDs.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth user ID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Full name of the user" },
+        "photoURL": { "type": "string", "description": "Profile avatar URL" },
+        "role": { "type": "string", "enum": ["seeker", "employer", "admin"], "description": "User portal role" },
+        "headline": { "type": "string", "description": "Professional headline" },
+        "location": { "type": "string", "description": "Preferred location" },
+        "experienceLevel": { "type": "string", "description": "Experience tier" },
+        "skills": { "type": "array", "items": { "type": "string" }, "description": "User technical and domain skills" },
+        "savedJobIds": { "type": "array", "items": { "type": "string" }, "description": "IDs of bookmarked jobs" },
+        "bio": { "type": "string", "description": "Short professional summary" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last profile update timestamp" }
+      },
+      "required": ["uid", "email", "displayName", "role", "skills", "savedJobIds", "updatedAt"]
+    },
+    "JobListing": {
+      "title": "JobListing",
+      "description": "A published job or internship opening posted by an employer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique job identifier" },
+        "title": { "type": "string", "description": "Job title" },
+        "company": { "type": "string", "description": "Hiring company name" },
+        "companyLogo": { "type": "string", "description": "Company monogram or logo identifier" },
+        "companyColor": { "type": "string", "description": "Brand accent color hex or class" },
+        "location": { "type": "string", "description": "City, state, or remote designation" },
+        "locationType": { "type": "string", "enum": ["Remote", "Hybrid", "On-site"], "description": "Workplace arrangement" },
+        "jobType": { "type": "string", "enum": ["Full-time", "Internship", "Contract", "Part-time"], "description": "Employment type" },
+        "salaryMin": { "type": "number", "description": "Annualized minimum compensation in USD" },
+        "salaryMax": { "type": "number", "description": "Annualized maximum compensation in USD" },
+        "salaryFormatted": { "type": "string", "description": "Human-readable compensation string" },
+        "experienceLevel": { "type": "string", "enum": ["Entry-Level", "Internship", "Mid-Level", "Senior", "Lead"], "description": "Required seniority" },
+        "department": { "type": "string", "description": "Functional department" },
+        "skills": { "type": "array", "items": { "type": "string" }, "description": "Required technical or professional skills" },
+        "description": { "type": "string", "description": "Overview of the role and team" },
+        "responsibilities": { "type": "array", "items": { "type": "string" }, "description": "Key responsibilities" },
+        "requirements": { "type": "array", "items": { "type": "string" }, "description": "Qualifications and requirements" },
+        "benefits": { "type": "array", "items": { "type": "string" }, "description": "Perks and benefits" },
+        "postedAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when posted" },
+        "authorUid": { "type": "string", "description": "UID of the employer who posted the job" },
+        "featured": { "type": "boolean", "description": "Whether highlighted on the board" },
+        "applicantsCount": { "type": "number", "description": "Total number of applicants" }
+      },
+      "required": [
+        "id", "title", "company", "location", "locationType", "jobType",
+        "salaryMin", "salaryMax", "salaryFormatted", "experienceLevel",
+        "department", "skills", "description", "responsibilities",
+        "requirements", "benefits", "postedAt", "authorUid"
+      ]
+    },
+    "JobApplication": {
+      "title": "JobApplication",
+      "description": "A candidate's submitted application for a specific job or internship.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Application document ID" },
+        "jobId": { "type": "string", "description": "Target job ID" },
+        "jobTitle": { "type": "string", "description": "Snapshot of job title" },
+        "company": { "type": "string", "description": "Snapshot of company name" },
+        "location": { "type": "string", "description": "Snapshot of job location" },
+        "jobType": { "type": "string", "description": "Snapshot of job type" },
+        "salaryFormatted": { "type": "string", "description": "Snapshot of formatted salary" },
+        "applicantUid": { "type": "string", "description": "UID of the job seeker" },
+        "applicantName": { "type": "string", "description": "Full name of applicant" },
+        "applicantEmail": { "type": "string", "format": "email", "description": "Applicant email" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "portfolioUrl": { "type": "string", "description": "LinkedIn, GitHub, or portfolio URL" },
+        "resumeSummary": { "type": "string", "description": "Key experience and skills highlight" },
+        "coverNote": { "type": "string", "description": "Why the candidate is a great fit" },
+        "status": { "type": "string", "enum": ["Submitted", "Under Review", "Interviewing", "Offered"], "description": "Application status" },
+        "appliedAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when submitted" }
+      },
+      "required": [
+        "id", "jobId", "jobTitle", "company", "location", "jobType",
+        "salaryFormatted", "applicantUid", "applicantName", "applicantEmail",
+        "resumeSummary", "status", "appliedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles containing skills, role, and saved job IDs."
+    },
+    "/jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/JobListing" },
+      "description": "Publicly readable job and internship listings."
+    },
+    "/applications/{applicationId}": {
+      "schema": { "$ref": "#/entities/JobApplication" },
+      "description": "Job applications submitted by authenticated seekers."
+    }
+  }
+}

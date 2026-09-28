@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "dharanisamantray@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidStringList(listVal, maxItems, maxItemLen) {
+      return listVal is list && listVal.size() <= maxItems;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'skills', 'savedJobIds', 'updatedAt']) &&
+        data.uid is string && data.uid == request.auth.uid &&
+        isValidString(data.email, 3, 200) &&
+        isValidString(data.displayName, 1, 120) &&
+        data.role in ['seeker', 'employer', 'admin'] &&
+        isValidStringList(data.skills, 50, 60) &&
+        isValidStringList(data.savedJobIds, 200, 100) &&
+        isValidString(data.updatedAt, 10, 40) &&
+        (!('headline' in data) || isValidString(data.headline, 0, 200)) &&
+        (!('location' in data) || isValidString(data.location, 0, 120)) &&
+        (!('experienceLevel' in data) || isValidString(data.experienceLevel, 0, 60)) &&
+        (!('bio' in data) || isValidString(data.bio, 0, 2000)) &&
+        (!('photoURL' in data) || isValidString(data.photoURL, 0, 500));
+    }
+
+    function isValidJobListing(data) {
+      return data.keys().hasAll([
+        'id', 'title', 'company', 'location', 'locationType', 'jobType',
+        'salaryMin', 'salaryMax', 'salaryFormatted', 'experienceLevel',
+        'department', 'skills', 'description', 'responsibilities',
+        'requirements', 'benefits', 'postedAt', 'authorUid'
+      ]) &&
+        isValidString(data.id, 1, 100) &&
+        isValidString(data.title, 2, 140) &&
+        isValidString(data.company, 1, 120) &&
+        isValidString(data.location, 1, 120) &&
+        data.locationType in ['Remote', 'Hybrid', 'On-site'] &&
+        data.jobType in ['Full-time', 'Internship', 'Contract', 'Part-time'] &&
+        data.salaryMin is number && data.salaryMin >= 0 &&
+        data.salaryMax is number && data.salaryMax >= data.salaryMin &&
+        isValidString(data.salaryFormatted, 1, 80) &&
+        data.experienceLevel in ['Entry-Level', 'Internship', 'Mid-Level', 'Senior', 'Lead'] &&
+        isValidString(data.department, 1, 80) &&
+        isValidStringList(data.skills, 30, 60) &&
+        isValidString(data.description, 10, 5000) &&
+        isValidStringList(data.responsibilities, 25, 500) &&
+        isValidStringList(data.requirements, 25, 500) &&
+        isValidStringList(data.benefits, 25, 500) &&
+        isValidString(data.postedAt, 10, 40) &&
+        data.authorUid is string && data.authorUid == request.auth.uid;
+    }
+
+    function isValidJobApplication(data) {
+      return data.keys().hasAll([
+        'id', 'jobId', 'jobTitle', 'company', 'location', 'jobType',
+        'salaryFormatted', 'applicantUid', 'applicantName', 'applicantEmail',
+        'resumeSummary', 'status', 'appliedAt'
+      ]) &&
+        isValidString(data.id, 1, 120) &&
+        isValidString(data.jobId, 1, 120) &&
+        isValidString(data.jobTitle, 1, 140) &&
+        isValidString(data.company, 1, 120) &&
+        isValidString(data.location, 1, 120) &&
+        isValidString(data.jobType, 1, 60) &&
+        isValidString(data.salaryFormatted, 1, 80) &&
+        data.applicantUid is string && data.applicantUid == request.auth.uid &&
+        isValidString(data.applicantName, 1, 120) &&
+        isValidString(data.applicantEmail, 3, 200) &&
+        isValidString(data.resumeSummary, 5, 4000) &&
+        data.status in ['Submitted', 'Under Review', 'Interviewing', 'Offered'] &&
+        isValidString(data.appliedAt, 10, 40) &&
+        (!('phone' in data) || isValidString(data.phone, 0, 50)) &&
+        (!('portfolioUrl' in data) || isValidString(data.portfolioUrl, 0, 500)) &&
+        (!('coverNote' in data) || isValidString(data.coverNote, 0, 3000));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUserProfile(request.resource.data) &&
+        (request.resource.data.role in ['seeker', 'employer'] || isAdmin());
+      allow update: if isOwner(userId) && isValidUserProfile(request.resource.data) &&
+        (request.resource.data.role == resource.data.role || request.resource.data.role in ['seeker', 'employer'] || isAdmin());
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /jobs/{jobId} {
+      // Job listings are publicly readable so visitors can browse and search jobs
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidJobListing(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (resource.data.authorUid == request.auth.uid && isValidJobListing(request.resource.data)) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (resource.data.authorUid == request.auth.uid || isAdmin());
+    }
+
+    match /applications/{applicationId} {
+      allow read: if isAuthenticated() && (resource.data.applicantUid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidJobApplication(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (resource.data.applicantUid == request.auth.uid && isValidJobApplication(request.resource.data)) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (resource.data.applicantUid == request.auth.uid || isAdmin());
+    }
+  }
+}
