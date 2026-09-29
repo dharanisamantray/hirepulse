@@ -46,6 +46,7 @@ import { JobDetailsModal } from './components/JobDetailsModal';
 import { EmployerSection } from './components/EmployerSection';
 import { AIRecommendationsSection } from './components/AIRecommendationsSection';
 import { SeekerDashboard } from './components/SeekerDashboard';
+import { N8nChatWidget } from './components/N8nChatWidget';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('explore');
@@ -542,7 +543,7 @@ export default function App() {
 
         {/* Toast Notification Banner */}
         {toastMessage && (
-          <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-bottom-4 duration-150">
+          <div className="fixed bottom-5 left-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-bottom-4 duration-150">
             <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
@@ -1288,6 +1289,9 @@ export default function App() {
             showToast('Signed in to HirePulse!');
           }}
         />
+
+        {/* Floating n8n AI Career Chatbot */}
+        <N8nChatWidget />
       </div>
     </ErrorBoundary>
   );
