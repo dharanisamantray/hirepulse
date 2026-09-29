@@ -12,6 +12,7 @@ export type JobType = 'Full-time' | 'Internship' | 'Contract' | 'Part-time';
 export type ExperienceLevel = 'Internship' | 'Entry-Level' | 'Mid-Level' | 'Senior' | 'Lead';
 export type UserRole = 'seeker' | 'employer' | 'admin';
 export type ApplicationStatus = 'Submitted' | 'Under Review' | 'Interviewing' | 'Offered';
+export type JobSector = 'private' | 'government';
 
 export interface JobListing {
   id: string;
@@ -36,6 +37,15 @@ export interface JobListing {
   authorUid: string;
   featured?: boolean;
   applicantsCount?: number;
+  // Adzuna Private Jobs & Government Job Notification extensions
+  sector?: JobSector;
+  source?: string;
+  applyUrl?: string;
+  officialPortalName?: string;
+  advtNumber?: string;
+  vacancies?: number;
+  applicationDeadline?: string;
+  payLevel?: string;
 }
 
 export interface UserProfile {
@@ -84,6 +94,8 @@ export interface AIJobRecommendation {
 
 export interface FilterState {
   searchQuery: string;
+  sector: 'All' | 'private' | 'government';
+  country: string;
   location: string;
   locationType: string;
   jobType: string;

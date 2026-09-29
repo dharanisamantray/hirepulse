@@ -9,12 +9,14 @@ import {
   BookmarkCheck,
   CheckCircle2,
   Sparkles,
-  Building2,
   Send,
   ArrowLeft,
   Award,
+  ExternalLink,
+  Landmark,
+  FileText,
   Users,
-  Globe,
+  Calendar,
 } from 'lucide-react';
 import { JobListing, UserProfile } from '../types';
 import { generateTailoredCoverNote } from '../services/aiService';
@@ -27,6 +29,7 @@ interface JobDetailsModalProps {
   hasApplied: boolean;
   onClose: () => void;
   onToggleSave: (jobId: string) => void;
+  onQuickTrackVisit: (job: JobListing) => void;
   onSubmitApplication: (
     job: JobListing,
     formData: {
@@ -48,6 +51,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
   hasApplied,
   onClose,
   onToggleSave,
+  onQuickTrackVisit,
   onSubmitApplication,
 }) => {
   const [showApplyForm, setShowApplyForm] = useState(false);
@@ -81,7 +85,10 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     job.skills.length > 0
       ? Math.min(
           98,
-          Math.max(55, Math.round((matchedSkills.length / job.skills.length) * 85 + 15))
+          Math.max(
+            55,
+            Math.round((matchedSkills.length / job.skills.length) * 85 + 15)
+          )
         )
       : 78;
 
@@ -90,7 +97,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     setApplicantEmail(userProfile?.email || '');
     setResumeSummary(
       userProfile?.bio ||
-        `Proficient in ${activeSkills.slice(0, 5).join(', ')}. Passionate about building scalable products at ${job.company}.`
+        `Proficient in ${activeSkills.slice(0, 5).join(', ')}. Passionate about contributing to ${job.company}.`
     );
     setShowApplyForm(true);
     setSubmittedSuccess(false);
@@ -136,23 +143,25 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     year: 'numeric',
   });
 
+  const isGovt = job.sector === 'government';
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-xs">
       <div className="bg-white w-full max-w-3xl h-full flex flex-col shadow-2xl border-l border-slate-200 overflow-hidden animate-in slide-in-from-right duration-200">
         {/* Top Action Bar */}
-        <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <button
             onClick={onClose}
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Back to Job Listings</span>
+            <span>Back to Listings</span>
           </button>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => onToggleSave(job.id)}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
                 isSaved
                   ? 'bg-blue-50 border-blue-200 text-blue-700'
                   : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -166,24 +175,34 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
               ) : (
                 <>
                   <Bookmark className="w-4 h-4" />
-                  <span>Save Job</span>
+                  <span>Save</span>
                 </>
               )}
             </button>
 
-            {hasApplied || submittedSuccess ? (
-              <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Application Submitted</span>
-              </span>
-            ) : (
+            {!hasApplied && !submittedSuccess && (
               <button
                 onClick={handleOpenApplyForm}
-                className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer"
               >
-                <Send className="w-4 h-4" />
-                <span>Apply Now</span>
+                <Send className="w-3.5 h-3.5" />
+                <span>Quick In-App Apply</span>
               </button>
+            )}
+
+            {job.applyUrl && (
+              <a
+                href={job.applyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => onQuickTrackVisit(job)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+              >
+                <span>
+                  Visit {job.officialPortalName || 'Application Page'} to Apply
+                </span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
             )}
 
             <button
@@ -216,9 +235,14 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
                     <span className="text-xs font-medium text-slate-500">
                       {job.department}
                     </span>
-                    {job.jobType === 'Internship' && (
-                      <span className="px-2 py-0.5 text-[11px] font-mono-tech uppercase tracking-wider font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded">
-                        Internship
+                    {isGovt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono-tech uppercase tracking-wider font-semibold bg-amber-100 text-amber-900 border border-amber-300 rounded">
+                        <Landmark className="w-3 h-3" />
+                        Govt Notification
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[11px] font-mono-tech uppercase tracking-wider font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded">
+                        {job.source || 'Adzuna Private Job'}
                       </span>
                     )}
                   </div>
@@ -241,6 +265,47 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Government Gazette Specific Strip */}
+            {isGovt && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-lg bg-amber-50/80 border border-amber-200 text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-amber-700 shrink-0" />
+                  <div>
+                    <span className="text-amber-700/80 block text-[10px] uppercase font-mono-tech">
+                      Advertisement No.
+                    </span>
+                    <span className="font-mono-tech font-bold text-amber-950">
+                      {job.advtNumber || 'Official Gazette'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <div>
+                    <span className="text-amber-700/80 block text-[10px] uppercase font-mono-tech">
+                      Notified Vacancies
+                    </span>
+                    <span className="font-mono-tech font-bold text-emerald-900">
+                      {job.vacancies ? `${job.vacancies.toLocaleString()} Posts` : 'Multiple Posts'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-red-700 shrink-0" />
+                  <div>
+                    <span className="text-amber-700/80 block text-[10px] uppercase font-mono-tech">
+                      Application Deadline
+                    </span>
+                    <span className="font-mono-tech font-bold text-red-900">
+                      {job.applicationDeadline || 'See Official Portal'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Metadata Strip */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-200/80">
@@ -295,7 +360,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-mono-tech uppercase tracking-wider font-semibold text-blue-600">
-                    Direct Application
+                    Application Profile &amp; Tracker
                   </span>
                   <h3 className="text-lg font-bold text-slate-900 font-display">
                     Apply to {job.company} — {job.title}
@@ -424,7 +489,9 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
                   >
                     <Send className="w-4 h-4" />
                     <span>
-                      {submitting ? 'Submitting Application...' : 'Submit Application'}
+                      {submitting
+                        ? 'Submitting Application...'
+                        : 'Save Application to Dashboard'}
                     </span>
                   </button>
                 </div>
@@ -462,7 +529,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
           {/* Role Overview */}
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display mb-2.5">
-              About the Role
+              About the Role / Notification
             </h3>
             <p className="text-sm text-slate-600 leading-relaxed max-w-[68ch]">
               {job.description}
@@ -472,7 +539,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
           {/* Responsibilities */}
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display mb-3">
-              What You Will Do
+              Key Responsibilities &amp; Duties
             </h3>
             <ul className="space-y-2.5">
               {job.responsibilities.map((item, idx) => (
@@ -490,7 +557,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
           {/* Requirements */}
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display mb-3">
-              Qualifications &amp; Requirements
+              Eligibility &amp; Qualifications
             </h3>
             <ul className="space-y-2.5">
               {job.requirements.map((item, idx) => (
@@ -508,7 +575,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
           {/* Benefits */}
           <div>
             <h3 className="text-base font-bold text-slate-900 font-display mb-3">
-              Compensation &amp; Benefits
+              Compensation, Allowances &amp; Benefits
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {job.benefits.map((benefit, idx) => (
@@ -523,29 +590,46 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
             </div>
           </div>
 
-          {/* Bottom Call-to-Action Banner */}
+          {/* Bottom Call-to-Action Banner with Direct External Link */}
           <div className="p-6 rounded-xl bg-slate-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h4 className="font-display font-bold text-base">
-                Ready to take the next step with {job.company}?
+                Ready to apply at {job.company}?
               </h4>
               <p className="text-xs text-slate-300 mt-1">
-                {job.applicantsCount || 24} candidates have applied • Direct review by hiring team
+                {job.officialPortalName
+                  ? `Official Application Portal: ${job.officialPortalName}`
+                  : 'Direct application portal verified'}
               </p>
             </div>
-            {hasApplied || submittedSuccess ? (
-              <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Applied</span>
-              </span>
-            ) : (
-              <button
-                onClick={handleOpenApplyForm}
-                className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors cursor-pointer shrink-0"
-              >
-                Apply Now
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {hasApplied || submittedSuccess ? (
+                <span className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Tracked in Dashboard</span>
+                </span>
+              ) : (
+                <button
+                  onClick={handleOpenApplyForm}
+                  className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Draft AI Cover Note
+                </button>
+              )}
+
+              {job.applyUrl && (
+                <a
+                  href={job.applyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => onQuickTrackVisit(job)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  <span>Visit Official Page to Apply</span>
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </div>

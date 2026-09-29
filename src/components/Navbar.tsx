@@ -4,13 +4,19 @@ import {
   Sparkles,
   BookmarkCheck,
   Building2,
+  Landmark,
   LogIn,
   LogOut,
   User as UserIcon,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'explore' | 'ai-match' | 'dashboard' | 'employer';
+export type ActiveTab =
+  | 'explore'
+  | 'govt-notifications'
+  | 'ai-match'
+  | 'dashboard'
+  | 'employer';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -18,6 +24,7 @@ interface NavbarProps {
   userProfile: UserProfile | null;
   savedCount: number;
   appliedCount: number;
+  govtCount?: number;
   onOpenAuth: (defaultMode?: 'login' | 'signup') => void;
   onSignOut: () => void;
 }
@@ -28,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   userProfile,
   savedCount,
   appliedCount,
+  govtCount = 7,
   onOpenAuth,
   onSignOut,
 }) => {
@@ -39,20 +47,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   }[] = [
     {
       id: 'explore',
-      label: 'Find Jobs & Internships',
+      label: 'Private & All Jobs',
       icon: <Briefcase className="w-4 h-4" />,
     },
     {
+      id: 'govt-notifications',
+      label: 'Govt Notifications',
+      icon: <Landmark className="w-4 h-4 text-amber-600" />,
+      badge: govtCount,
+    },
+    {
       id: 'ai-match',
-      label: 'AI Recommendations',
+      label: 'AI Match',
       icon: <Sparkles className="w-4 h-4 text-blue-600" />,
       badge: 'AI',
     },
     {
       id: 'dashboard',
-      label: 'Seeker Dashboard',
+      label: 'Dashboard',
       icon: <BookmarkCheck className="w-4 h-4" />,
-      badge: savedCount + appliedCount > 0 ? savedCount + appliedCount : undefined,
+      badge:
+        savedCount + appliedCount > 0 ? savedCount + appliedCount : undefined,
     },
     {
       id: 'employer',
@@ -65,7 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-[1440px] mx-auto h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
         {/* Brand Logo */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-6">
           <button
             onClick={() => setActiveTab('explore')}
             className="flex items-center gap-2.5 text-left group cursor-pointer"
@@ -77,8 +92,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="font-display font-bold text-lg tracking-tight text-slate-900">
                 Hire<span className="text-blue-600">Pulse</span>
               </span>
-              <span className="hidden sm:inline-block ml-2 text-[11px] font-mono-tech uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                Careers &amp; Internships
+              <span className="hidden xl:inline-block ml-2 text-[11px] font-mono-tech uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                Adzuna &amp; Govt Portal
               </span>
             </div>
           </button>
@@ -91,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                     isActive
                       ? 'bg-blue-50 text-blue-700 font-semibold'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -104,6 +119,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       className={`text-[11px] font-mono-tech px-1.5 py-0.5 rounded font-semibold ${
                         item.badge === 'AI'
                           ? 'bg-blue-600 text-white'
+                          : item.id === 'govt-notifications'
+                          ? 'bg-amber-100 text-amber-900'
                           : isActive
                           ? 'bg-blue-200/80 text-blue-900'
                           : 'bg-slate-200 text-slate-700'
@@ -144,7 +161,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {userProfile.displayName}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5 capitalize">
-                    {userProfile.role === 'employer' ? 'Employer Account' : 'Job Seeker'}
+                    {userProfile.role === 'employer'
+                      ? 'Employer Account'
+                      : 'Job Seeker'}
                   </p>
                 </div>
               </button>
@@ -180,14 +199,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Mobile Navigation Bar */}
-      <div className="md:hidden flex items-center justify-around border-t border-slate-200 bg-white px-2 py-1.5">
+      <div className="md:hidden flex items-center justify-around border-t border-slate-200 bg-white px-2 py-1.5 overflow-x-auto">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer shrink-0 ${
                 isActive
                   ? 'bg-blue-50 text-blue-700 font-semibold'
                   : 'text-slate-600'

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search,
   MapPin,
@@ -11,9 +11,14 @@ import {
   SlidersHorizontal,
   X,
   ArrowUpRight,
-  Building2,
   Clock,
   RotateCcw,
+  Landmark,
+  ExternalLink,
+  Globe,
+  FileText,
+  Users,
+  RefreshCw,
 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
@@ -38,7 +43,11 @@ import {
   UserProfile,
   UserRole,
 } from './types';
-import { POPULAR_SKILLS, SAMPLE_JOBS } from './data/sampleJobs';
+import {
+  GOVERNMENT_JOB_NOTIFICATIONS,
+  POPULAR_SKILLS,
+  SAMPLE_JOBS,
+} from './data/sampleJobs';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ActiveTab, Navbar } from './components/Navbar';
 import { AuthModal } from './components/AuthModal';
@@ -46,12 +55,15 @@ import { JobDetailsModal } from './components/JobDetailsModal';
 import { EmployerSection } from './components/EmployerSection';
 import { AIRecommendationsSection } from './components/AIRecommendationsSection';
 import { SeekerDashboard } from './components/SeekerDashboard';
+import { GovernmentNotificationsSection } from './components/GovernmentNotificationsSection';
 import { N8nChatWidget } from './components/N8nChatWidget';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('explore');
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'signup'>('login');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'signup'>(
+    'login'
+  );
 
   // Auth & Profile State
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -68,11 +80,16 @@ export default function App() {
   const [guestLevel, setGuestLevel] = useState<ExperienceLevel>('Mid-Level');
   const [guestSavedJobIds, setGuestSavedJobIds] = useState<string[]>([
     'job-stripe-fe-01',
-    'job-figma-intern-03',
+    'govt-isro-icrb-2026-01',
   ]);
-  const [guestApplications, setGuestApplications] = useState<JobApplication[]>([]);
+  const [guestApplications, setGuestApplications] = useState<JobApplication[]>(
+    []
+  );
 
-  // Firestore Live Collections
+  // Live Collections & Adzuna API State
+  const [adzunaJobs, setAdzunaJobs] = useState<JobListing[]>(SAMPLE_JOBS);
+  const [adzunaMode, setAdzunaMode] = useState<string>('adzuna_partner_feed');
+  const [loadingAdzuna, setLoadingAdzuna] = useState<boolean>(false);
   const [firestoreJobs, setFirestoreJobs] = useState<JobListing[]>([]);
   const [localPostedJobs, setLocalPostedJobs] = useState<JobListing[]>([]);
   const [firestoreApplications, setFirestoreApplications] = useState<
@@ -95,6 +112,8 @@ export default function App() {
   // Search & Filter State
   const [filters, setFilters] = useState<FilterState>({
     searchQuery: '',
+    sector: 'All',
+    country: 'in',
     location: 'All',
     locationType: 'All',
     jobType: 'All',
@@ -103,6 +122,46 @@ export default function App() {
     experienceLevel: 'All',
     sortBy: 'newest',
   });
+
+  // Fetch Private Sector Jobs from our Server Adzuna API Route
+  const fetchAdzunaPrivateJobs = useCallback(
+    async (searchKeyword?: string, countryCode?: string, whereLoc?: string) => {
+      setLoadingAdzuna(true);
+      try {
+        const params = new URLSearchParams({
+          what: searchKeyword || filters.searchQuery || 'software engineer',
+          country: countryCode || filters.country || 'in',
+        });
+        const loc = whereLoc ?? filters.location;
+        if (loc && loc !== 'All') {
+          params.set('where', loc);
+        }
+
+        const response = await fetch(`/api/jobs/adzuna?${params.toString()}`);
+        if (response.ok) {
+          const data = (await response.json()) as {
+            mode?: string;
+            jobs?: JobListing[];
+          };
+          if (Array.isArray(data.jobs) && data.jobs.length > 0) {
+            setAdzunaJobs(data.jobs);
+          }
+          if (data.mode) {
+            setAdzunaMode(data.mode);
+          }
+        }
+      } catch (err) {
+        console.warn('Using local Adzuna job cache:', err);
+      } finally {
+        setLoadingAdzuna(false);
+      }
+    },
+    [filters.searchQuery, filters.country, filters.location]
+  );
+
+  useEffect(() => {
+    fetchAdzunaPrivateJobs('', filters.country, 'All');
+  }, [filters.country]);
 
   // 1. Listen to public /jobs collection in Firestore
   useEffect(() => {
@@ -161,7 +220,7 @@ export default function App() {
               photoURL: fbUser.photoURL || '',
               role: 'seeker',
               headline: guestHeadline,
-              location: 'San Francisco, CA',
+              location: 'Bengaluru / San Francisco',
               experienceLevel: guestLevel,
               skills: guestSkills,
               savedJobIds: guestSavedJobIds,
@@ -172,7 +231,11 @@ export default function App() {
               await setDoc(userRef, newProfile);
               setUserProfile(newProfile);
             } catch (err) {
-              handleFirestoreError(err, OperationType.CREATE, `users/${fbUser.uid}`);
+              handleFirestoreError(
+                err,
+                OperationType.CREATE,
+                `users/${fbUser.uid}`
+              );
             }
           }
         },
@@ -209,18 +272,43 @@ export default function App() {
     };
   }, []);
 
-  // Combined Jobs Catalog (Firestore jobs + local session jobs + realistic sample jobs)
+  // Combined Jobs Catalog: Adzuna Private Jobs + Government Job Notifications + Firestore Employer Jobs
   const allJobs = useMemo(() => {
     const map = new Map<string, JobListing>();
-    firestoreJobs.forEach((j) => map.set(j.id, j));
+    firestoreJobs.forEach((j) =>
+      map.set(j.id, {
+        ...j,
+        sector: j.sector || 'private',
+        source: j.source || 'Direct Employer',
+        applyUrl:
+          j.applyUrl ||
+          `https://www.adzuna.com/search?q=${encodeURIComponent(
+            `${j.title} ${j.company}`
+          )}`,
+      })
+    );
     localPostedJobs.forEach((j) => {
+      if (!map.has(j.id)) {
+        map.set(j.id, {
+          ...j,
+          sector: j.sector || 'private',
+          source: j.source || 'Direct Employer',
+          applyUrl:
+            j.applyUrl ||
+            `https://www.adzuna.com/search?q=${encodeURIComponent(
+              `${j.title} ${j.company}`
+            )}`,
+        });
+      }
+    });
+    adzunaJobs.forEach((j) => {
       if (!map.has(j.id)) map.set(j.id, j);
     });
-    SAMPLE_JOBS.forEach((j) => {
-      if (!map.has(j.id)) map.set(j.id, j);
+    GOVERNMENT_JOB_NOTIFICATIONS.forEach((g) => {
+      if (!map.has(g.id)) map.set(g.id, g);
     });
     return Array.from(map.values());
-  }, [firestoreJobs, localPostedJobs]);
+  }, [firestoreJobs, localPostedJobs, adzunaJobs]);
 
   const activeSkills = userProfile ? userProfile.skills : guestSkills;
   const activeHeadline =
@@ -246,7 +334,8 @@ export default function App() {
         (u) => s.toLowerCase().includes(u) || u.includes(s.toLowerCase())
       )
     );
-    const ratio = job.skills.length > 0 ? matched.length / job.skills.length : 0.5;
+    const ratio =
+      job.skills.length > 0 ? matched.length / job.skills.length : 0.5;
     const bonus = job.experienceLevel === activeLevel ? 10 : 4;
     return Math.min(98, Math.max(52, Math.round(ratio * 82 + bonus)));
   };
@@ -255,15 +344,27 @@ export default function App() {
   const filteredJobs = useMemo(() => {
     return allJobs
       .filter((job) => {
+        if (filters.sector !== 'All') {
+          const jobSector = job.sector || 'private';
+          if (jobSector !== filters.sector) return false;
+        }
+
         if (filters.searchQuery.trim()) {
           const q = filters.searchQuery.toLowerCase().trim();
           const matchesTitle = job.title.toLowerCase().includes(q);
           const matchesCompany = job.company.toLowerCase().includes(q);
           const matchesDept = job.department.toLowerCase().includes(q);
+          const matchesAdvt = (job.advtNumber || '').toLowerCase().includes(q);
           const matchesSkill = job.skills.some((s) =>
             s.toLowerCase().includes(q)
           );
-          if (!matchesTitle && !matchesCompany && !matchesDept && !matchesSkill) {
+          if (
+            !matchesTitle &&
+            !matchesCompany &&
+            !matchesDept &&
+            !matchesAdvt &&
+            !matchesSkill
+          ) {
             return false;
           }
         }
@@ -339,8 +440,29 @@ export default function App() {
     }
 
     showToast(
-      exists ? 'Removed job from saved bookmarks' : 'Job saved to your dashboard'
+      exists
+        ? 'Removed job from saved bookmarks'
+        : 'Saved to your Seeker Dashboard'
     );
+  };
+
+  // Automatically log application when visiting external official portal to apply
+  const handleQuickTrackVisit = async (job: JobListing) => {
+    if (appliedJobIds.includes(job.id)) {
+      showToast(`Opening ${job.officialPortalName || job.company} application portal...`);
+      return;
+    }
+
+    await handleSubmitApplication(job, {
+      applicantName: userProfile?.displayName || 'Job Seeker',
+      applicantEmail: userProfile?.email || 'seeker@hirepulse.io',
+      phone: '',
+      portfolioUrl: job.applyUrl || '',
+      resumeSummary: `Applied via external portal (${
+        job.officialPortalName || job.source || 'Official Website'
+      }). Skills: ${activeSkills.slice(0, 5).join(', ')}.`,
+      coverNote: `Visited official application portal: ${job.applyUrl || ''}`,
+    });
   };
 
   const handleUpdateSkillsAndProfile = async (
@@ -357,7 +479,8 @@ export default function App() {
         await updateDoc(doc(db, 'users', auth.currentUser.uid), {
           skills: newSkills.slice(0, 45),
           headline: (newHeadline ?? userProfile.headline ?? '').slice(0, 190),
-          experienceLevel: newLevel ?? userProfile.experienceLevel ?? 'Mid-Level',
+          experienceLevel:
+            newLevel ?? userProfile.experienceLevel ?? 'Mid-Level',
           updatedAt: new Date().toISOString(),
         });
       } catch (err) {
@@ -415,7 +538,7 @@ export default function App() {
       setGuestApplications((prev) => [newApp, ...prev]);
     }
 
-    showToast(`Application submitted to ${job.company}!`);
+    showToast(`Application tracked for ${job.company}!`);
   };
 
   const handleUpdateApplicationStatus = async (
@@ -468,6 +591,11 @@ export default function App() {
       id: jobId,
       postedAt: new Date().toISOString(),
       authorUid: auth.currentUser?.uid || 'local-employer-session',
+      sector: 'private',
+      source: 'Direct Employer',
+      applyUrl: `https://www.adzuna.com/search?q=${encodeURIComponent(
+        `${jobData.title} ${jobData.company}`
+      )}`,
     };
 
     if (auth.currentUser) {
@@ -511,6 +639,8 @@ export default function App() {
   const resetAllFilters = () => {
     setFilters({
       searchQuery: '',
+      sector: 'All',
+      country: filters.country,
       location: 'All',
       locationType: 'All',
       jobType: 'All',
@@ -531,6 +661,7 @@ export default function App() {
           userProfile={userProfile}
           savedCount={activeSavedJobIds.length}
           appliedCount={activeApplications.length}
+          govtCount={GOVERNMENT_JOB_NOTIFICATIONS.length}
           onOpenAuth={(mode = 'login') => {
             setAuthInitialMode(mode);
             setAuthModalOpen(true);
@@ -553,7 +684,7 @@ export default function App() {
         <main className="flex-1">
           {activeTab === 'explore' && (
             <div>
-              {/* Hero Section with Unified Search Bar */}
+              {/* Hero Section with Adzuna Private Search & Government Notifications */}
               <section className="bg-slate-900 text-white border-b border-slate-800 relative overflow-hidden">
                 <div
                   className="absolute inset-0 opacity-20 pointer-events-none"
@@ -562,21 +693,72 @@ export default function App() {
                       'radial-gradient(circle at 20% 20%, #2563EB 0%, transparent 45%), radial-gradient(circle at 80% 60%, #1D4ED8 0%, transparent 40%)',
                   }}
                 />
-                <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 relative z-10 space-y-7">
-                  <div className="max-w-3xl space-y-3">
-                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-mono-tech uppercase tracking-wider font-semibold">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                      <span>
-                        {allJobs.length} Verified Tech, Product &amp; Design Openings
-                      </span>
+                <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12 relative z-10 space-y-6">
+                  <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+                    <div className="max-w-3xl space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-mono-tech uppercase tracking-wider font-semibold">
+                          <Globe className="w-3.5 h-3.5 text-blue-400" />
+                          <span>
+                            {adzunaMode === 'live_adzuna_api'
+                              ? 'Adzuna Live API Connected'
+                              : 'Adzuna Private Jobs Network'}
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-mono-tech uppercase tracking-wider font-semibold">
+                          <Landmark className="w-3.5 h-3.5 text-amber-400" />
+                          <span>
+                            {GOVERNMENT_JOB_NOTIFICATIONS.length} Official Govt Notifications
+                          </span>
+                        </span>
+                      </div>
+
+                      <h1 className="text-3xl sm:text-5xl font-extrabold font-display tracking-tight leading-[1.12]">
+                        Private Sector Jobs &amp;{' '}
+                        <span className="text-blue-400">
+                          Govt Recruitment Alerts.
+                        </span>
+                      </h1>
+                      <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
+                        Search private company openings powered by the Adzuna API alongside verified Central &amp; Public Sector Government Job Notifications—and visit official portals directly to apply.
+                      </p>
                     </div>
-                    <h1 className="text-3xl sm:text-5xl font-extrabold font-display tracking-tight leading-[1.12]">
-                      Find your next high-impact{' '}
-                      <span className="text-blue-400">career or internship.</span>
-                    </h1>
-                    <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
-                      Search transparent compensation ranges, filter by technical stack, and unlock personalized AI skill matching across top engineering and product teams.
-                    </p>
+
+                    {/* Adzuna Market / Country Selector */}
+                    <div className="bg-slate-800/90 border border-slate-700 rounded-xl p-3 flex items-center gap-3 self-start lg:self-end shrink-0">
+                      <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+                      <div>
+                        <label className="block text-[10px] font-mono-tech uppercase text-slate-400">
+                          Adzuna Country Market
+                        </label>
+                        <select
+                          value={filters.country}
+                          onChange={(e) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              country: e.target.value,
+                            }))
+                          }
+                          className="text-xs font-semibold bg-transparent text-white outline-none cursor-pointer mt-0.5"
+                        >
+                          <option value="in" className="text-slate-900">
+                            India (adzuna.in)
+                          </option>
+                          <option value="us" className="text-slate-900">
+                            United States (adzuna.com)
+                          </option>
+                          <option value="gb" className="text-slate-900">
+                            United Kingdom (adzuna.co.uk)
+                          </option>
+                          <option value="ca" className="text-slate-900">
+                            Canada (adzuna.ca)
+                          </option>
+                          <option value="au" className="text-slate-900">
+                            Australia (adzuna.com.au)
+                          </option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Unified Multi-Input Search Bar */}
@@ -592,7 +774,7 @@ export default function App() {
                             searchQuery: e.target.value,
                           }))
                         }
-                        placeholder="Job title, company, or skill (e.g., React, Stripe)..."
+                        placeholder="Search Adzuna jobs or Govt notifications (e.g., React, ISRO, DRDO)..."
                         className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400"
                       />
                       {filters.searchQuery && (
@@ -622,84 +804,99 @@ export default function App() {
                       >
                         <option value="All">All Locations</option>
                         <option value="Remote">Remote</option>
+                        <option value="Bengaluru">Bengaluru, India</option>
+                        <option value="New Delhi">New Delhi, India</option>
+                        <option value="Hyderabad">Hyderabad, India</option>
                         <option value="San Francisco">San Francisco, CA</option>
                         <option value="New York">New York, NY</option>
-                        <option value="Seattle">Seattle, WA</option>
-                        <option value="Austin">Austin, TX</option>
                       </select>
                     </div>
 
                     <div className="sm:col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200/80">
                       <Briefcase className="w-4 h-4 text-blue-600 shrink-0" />
                       <select
-                        value={filters.jobType}
+                        value={filters.sector}
                         onChange={(e) =>
                           setFilters((prev) => ({
                             ...prev,
-                            jobType: e.target.value,
+                            sector: e.target.value as FilterState['sector'],
                           }))
                         }
                         className="w-full text-sm bg-transparent outline-none text-slate-700 cursor-pointer"
                       >
-                        <option value="All">All Types</option>
-                        <option value="Full-time">Full-time</option>
-                        <option value="Internship">Internship</option>
-                        <option value="Contract">Contract</option>
-                        <option value="Part-time">Part-time</option>
+                        <option value="All">All Sectors</option>
+                        <option value="private">Private (Adzuna)</option>
+                        <option value="government">Govt Notifications</option>
                       </select>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => {
+                        fetchAdzunaPrivateJobs(
+                          filters.searchQuery,
+                          filters.country,
+                          filters.location
+                        );
                         const el = document.getElementById('job-board-section');
                         el?.scrollIntoView({ behavior: 'smooth' });
                       }}
-                      className="sm:col-span-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      disabled={loadingAdzuna}
+                      className="sm:col-span-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <span>Search</span>
+                      {loadingAdzuna ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <span>Search</span>
+                      )}
                     </button>
                   </div>
 
-                  {/* Quick Filter Chips */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-slate-400 font-medium">
-                      Popular searches:
-                    </span>
-                    {[
-                      { label: 'Summer Internships', type: 'Internship' },
-                      { label: '100% Remote', locType: 'Remote' },
-                      { label: 'React & TypeScript', skill: 'React' },
-                      { label: 'Python & AI', skill: 'Python' },
-                      { label: 'Product Design', skill: 'Figma' },
-                    ].map((chip) => (
-                      <button
-                        key={chip.label}
-                        type="button"
-                        onClick={() => {
-                          if (chip.type) {
-                            setFilters((p) => ({
-                              ...p,
-                              jobType:
-                                p.jobType === chip.type ? 'All' : chip.type,
-                            }));
-                          } else if (chip.locType) {
-                            setFilters((p) => ({
-                              ...p,
-                              locationType:
-                                p.locationType === chip.locType
-                                  ? 'All'
-                                  : chip.locType,
-                            }));
-                          } else if (chip.skill) {
-                            toggleSkillFilter(chip.skill);
-                          }
-                        }}
-                        className="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-blue-600/30 text-slate-200 hover:text-white border border-slate-700 hover:border-blue-400 transition-colors cursor-pointer"
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
+                  {/* Live Government Job Notifications Spotlight Strip */}
+                  <div className="bg-slate-800/80 border border-slate-700/90 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+                        <Landmark className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono-tech uppercase tracking-wider font-bold text-amber-300">
+                            Latest Govt Recruitment Gazette
+                          </span>
+                          <span className="text-[11px] text-slate-400">•</span>
+                          <span className="text-[11px] text-emerald-400 font-medium">
+                            Direct Official Portal Links
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-200">
+                          {GOVERNMENT_JOB_NOTIFICATIONS.slice(0, 3).map((g) => (
+                            <a
+                              key={g.id}
+                              href={g.applyUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => handleQuickTrackVisit(g)}
+                              className="inline-flex items-center gap-1 hover:text-amber-300 underline decoration-slate-600 underline-offset-4 transition-colors"
+                            >
+                              <strong className="font-semibold">
+                                {g.company.split('—')[0].trim()}:
+                              </strong>
+                              <span>{g.vacancies} Posts</span>
+                              <ExternalLink className="w-3 h-3 text-amber-400" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('govt-notifications')}
+                      className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors shrink-0 inline-flex items-center gap-1.5 cursor-pointer self-start lg:self-center"
+                    >
+                      <Landmark className="w-3.5 h-3.5" />
+                      <span>View All Govt Job Notifications</span>
+                    </button>
                   </div>
                 </div>
               </section>
@@ -727,6 +924,44 @@ export default function App() {
                         <RotateCcw className="w-3 h-3" />
                         <span>Reset</span>
                       </button>
+                    </div>
+
+                    {/* Sector Switcher (All vs Adzuna Private vs Government) */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Job Sector
+                      </label>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {[
+                          { id: 'All', label: 'All Sectors (Private + Govt)' },
+                          {
+                            id: 'private',
+                            label: 'Private Jobs (Adzuna API)',
+                          },
+                          {
+                            id: 'government',
+                            label: 'Government Notifications',
+                          },
+                        ].map((sec) => (
+                          <button
+                            key={sec.id}
+                            type="button"
+                            onClick={() =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                sector: sec.id as FilterState['sector'],
+                              }))
+                            }
+                            className={`px-3 py-2 rounded-lg text-xs font-medium border text-left transition-colors cursor-pointer ${
+                              filters.sector === sec.id
+                                ? 'bg-blue-50 border-blue-600 text-blue-700 font-semibold'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {sec.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Job Type Filter */}
@@ -879,55 +1114,74 @@ export default function App() {
                     </div>
                   </aside>
 
-                  {/* Center/Right 9 Columns: AI Match Strip + Job Feed */}
+                  {/* Center/Right 9 Columns: Sector Tabs + Job Feed */}
                   <div className="lg:col-span-9 space-y-6">
-                    {/* AI-Powered Skill Match Callout Card */}
-                    <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="inline-flex items-center gap-1.5 text-xs font-mono-tech uppercase tracking-wider text-blue-100 font-semibold">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Personalized AI Job Matcher</span>
-                        </div>
-                        <h3 className="text-base sm:text-lg font-bold font-display">
-                          Matched to your skills:{' '}
-                          <span className="text-blue-100 font-normal">
-                            {activeSkills.slice(0, 5).join(', ')}
-                          </span>
-                        </h3>
-                      </div>
+                    {/* Quick Sector Pill Bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFilters((p) => ({ ...p, sector: 'All' }))
+                          }
+                          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                            filters.sector === 'All'
+                              ? 'bg-slate-900 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          All Listings ({allJobs.length})
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('ai-match')}
-                        className="px-4 py-2.5 rounded-lg bg-white text-blue-700 hover:bg-blue-50 text-xs font-bold shadow-xs transition-colors shrink-0 inline-flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Open AI Recommendations</span>
-                      </button>
-                    </div>
-
-                    {/* Feed Toolbar: Count & Sort */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-5 py-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                      <div className="text-xs text-slate-600">
-                        Showing{' '}
-                        <span className="font-mono-tech font-bold text-slate-900">
-                          {filteredJobs.length}
-                        </span>{' '}
-                        verified roles &amp; internships
-                        {filters.selectedSkills.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFilters((p) => ({ ...p, sector: 'private' }))
+                          }
+                          className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                            filters.sector === 'private'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          }`}
+                        >
+                          <Globe className="w-3.5 h-3.5" />
                           <span>
-                            {' '}
-                            matching{' '}
-                            <strong className="text-blue-600">
-                              {filters.selectedSkills.join(', ')}
-                            </strong>
+                            Private Jobs — Adzuna (
+                            {
+                              allJobs.filter(
+                                (j) => (j.sector || 'private') === 'private'
+                              ).length
+                            }
+                            )
                           </span>
-                        )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFilters((p) => ({ ...p, sector: 'government' }))
+                          }
+                          className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                            filters.sector === 'government'
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                          }`}
+                        >
+                          <Landmark className="w-3.5 h-3.5" />
+                          <span>
+                            Govt Job Notifications (
+                            {
+                              allJobs.filter((j) => j.sector === 'government')
+                                .length
+                            }
+                            )
+                          </span>
+                        </button>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-500 font-medium">
-                          Sort by:
+                          Sort:
                         </span>
                         <select
                           value={filters.sortBy}
@@ -956,7 +1210,7 @@ export default function App() {
                           No jobs match your exact filter combination
                         </h3>
                         <p className="text-xs text-slate-500 max-w-md mx-auto">
-                          Try clearing one of your selected skill tags or lowering the minimum salary threshold to see more openings.
+                          Try resetting your filters or switching between Private Jobs and Government Notifications.
                         </p>
                         <button
                           type="button"
@@ -973,12 +1227,17 @@ export default function App() {
                           const isSaved = activeSavedJobIds.includes(job.id);
                           const hasApplied = appliedJobIds.includes(job.id);
                           const matchScore = getJobMatchScore(job);
+                          const isGovt = job.sector === 'government';
 
                           return (
                             <article
                               key={job.id}
                               onClick={() => setSelectedJob(job)}
-                              className="group bg-white rounded-xl border border-slate-200 hover:border-blue-400 p-5 sm:p-6 shadow-2xs hover:shadow-md transition-all cursor-pointer"
+                              className={`group bg-white rounded-xl border p-5 sm:p-6 shadow-2xs hover:shadow-md transition-all cursor-pointer ${
+                                isGovt
+                                  ? 'border-amber-200/90 hover:border-amber-400'
+                                  : 'border-slate-200 hover:border-blue-400'
+                              }`}
                             >
                               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                                 {/* Left: Company Monogram & Role Title */}
@@ -994,20 +1253,44 @@ export default function App() {
                                       job.company.slice(0, 2).toUpperCase()}
                                   </div>
 
-                                  <div className="space-y-1">
+                                  <div className="space-y-1.5">
                                     <div className="flex flex-wrap items-center gap-2">
+                                      {isGovt ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono-tech uppercase tracking-wider font-bold bg-amber-100 text-amber-900 border border-amber-300 rounded">
+                                          <Landmark className="w-3 h-3 text-amber-700" />
+                                          Govt Notification
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono-tech uppercase tracking-wider font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded">
+                                          <Globe className="w-3 h-3 text-blue-600" />
+                                          {job.source || 'Adzuna Private'}
+                                        </span>
+                                      )}
+
                                       <span className="text-xs font-bold text-blue-600">
                                         {job.company}
                                       </span>
-                                      <span className="text-slate-300">•</span>
-                                      <span className="text-xs text-slate-500">
-                                        {job.department}
-                                      </span>
+
+                                      {job.advtNumber && (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-mono-tech text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                                          <FileText className="w-3 h-3 text-slate-500" />
+                                          {job.advtNumber}
+                                        </span>
+                                      )}
+
+                                      {job.vacancies && (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-mono-tech font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                                          <Users className="w-3 h-3 text-emerald-600" />
+                                          {job.vacancies} Vacancies
+                                        </span>
+                                      )}
+
                                       {job.jobType === 'Internship' && (
-                                        <span className="px-2 py-0.5 text-[10px] font-mono-tech uppercase tracking-wider font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded">
+                                        <span className="px-2 py-0.5 text-[10px] font-mono-tech uppercase tracking-wider font-semibold bg-purple-50 text-purple-800 border border-purple-200 rounded">
                                           Internship
                                         </span>
                                       )}
+
                                       {hasApplied && (
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono-tech uppercase font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
                                           <CheckCircle2 className="w-3 h-3" />
@@ -1021,7 +1304,7 @@ export default function App() {
                                     </h3>
 
                                     {/* Metadata Row */}
-                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-slate-600">
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs text-slate-600">
                                       <span className="inline-flex items-center gap-1 font-mono-tech font-semibold text-slate-900">
                                         <DollarSign className="w-3.5 h-3.5 text-blue-600" />
                                         {job.salaryFormatted}
@@ -1038,7 +1321,7 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                {/* Right: AI Match Badge & Save/Apply Buttons */}
+                                {/* Right: AI Match Badge, Save & Direct External Apply Link */}
                                 <div
                                   className="flex sm:flex-col items-center sm:items-end justify-between gap-2.5 shrink-0"
                                   onClick={(e) => e.stopPropagation()}
@@ -1051,15 +1334,15 @@ export default function App() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => handleToggleSaveJob(job.id)}
+                                      onClick={() =>
+                                        handleToggleSaveJob(job.id)
+                                      }
                                       className={`p-2 rounded-lg border transition-colors cursor-pointer ${
                                         isSaved
                                           ? 'bg-blue-50 border-blue-200 text-blue-600'
                                           : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50'
                                       }`}
-                                      title={
-                                        isSaved ? 'Saved' : 'Bookmark Job'
-                                      }
+                                      title={isSaved ? 'Saved' : 'Bookmark Job'}
                                     >
                                       {isSaved ? (
                                         <BookmarkCheck className="w-4 h-4" />
@@ -1071,20 +1354,39 @@ export default function App() {
                                     <button
                                       type="button"
                                       onClick={() => setSelectedJob(job)}
-                                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                                      className="px-3 py-2 rounded-lg border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
                                     >
-                                      <span>
-                                        {hasApplied
-                                          ? 'View Status'
-                                          : 'Apply Now'}
-                                      </span>
-                                      <ArrowUpRight className="w-3.5 h-3.5" />
+                                      Details
                                     </button>
+
+                                    {job.applyUrl ? (
+                                      <a
+                                        href={job.applyUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() =>
+                                          handleQuickTrackVisit(job)
+                                        }
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                                      >
+                                        <span>Visit Page to Apply</span>
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedJob(job)}
+                                        className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                                      >
+                                        <span>Apply Now</span>
+                                        <ArrowUpRight className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               </div>
 
-                              {/* Description Preview & Skill Tags */}
+                              {/* Skill Tags & Portal Info */}
                               <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                 <div className="flex flex-wrap gap-1.5">
                                   {job.skills.map((skill) => {
@@ -1107,14 +1409,20 @@ export default function App() {
                                   })}
                                 </div>
 
-                                <span className="text-[11px] text-slate-400 shrink-0 inline-flex items-center gap-1">
+                                <span className="text-[11px] text-slate-400 shrink-0 inline-flex items-center gap-1.5">
                                   <Clock className="w-3 h-3" />
-                                  {new Date(job.postedAt).toLocaleDateString(
-                                    'en-US',
-                                    {
-                                      month: 'short',
-                                      day: 'numeric',
-                                    }
+                                  {job.applicationDeadline ? (
+                                    <span className="text-red-600 font-mono-tech font-medium">
+                                      Apply by {job.applicationDeadline}
+                                    </span>
+                                  ) : (
+                                    new Date(job.postedAt).toLocaleDateString(
+                                      'en-US',
+                                      {
+                                        month: 'short',
+                                        day: 'numeric',
+                                      }
+                                    )
                                   )}
                                 </span>
                               </div>
@@ -1127,6 +1435,17 @@ export default function App() {
                 </div>
               </section>
             </div>
+          )}
+
+          {activeTab === 'govt-notifications' && (
+            <GovernmentNotificationsSection
+              notifications={GOVERNMENT_JOB_NOTIFICATIONS}
+              savedJobIds={activeSavedJobIds}
+              appliedJobIds={appliedJobIds}
+              onToggleSave={handleToggleSaveJob}
+              onSelectJob={(job) => setSelectedJob(job)}
+              onQuickTrackVisit={handleQuickTrackVisit}
+            />
           )}
 
           {activeTab === 'ai-match' && (
@@ -1186,7 +1505,9 @@ export default function App() {
               <span className="font-display font-bold text-slate-900">
                 HirePulse
               </span>
-              <span>— Modern Career &amp; Internship Portal</span>
+              <span>
+                — Adzuna Private Jobs &amp; Official Government Recruitment Portal
+              </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-6">
@@ -1195,7 +1516,14 @@ export default function App() {
                 onClick={() => setActiveTab('explore')}
                 className="hover:text-blue-600 cursor-pointer"
               >
-                Explore Jobs
+                Private Jobs (Adzuna)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('govt-notifications')}
+                className="hover:text-blue-600 cursor-pointer"
+              >
+                Govt Notifications
               </button>
               <button
                 type="button"
@@ -1210,13 +1538,6 @@ export default function App() {
                 className="hover:text-blue-600 cursor-pointer"
               >
                 Seeker Dashboard
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('employer')}
-                className="hover:text-blue-600 cursor-pointer"
-              >
-                Employer Studio
               </button>
             </div>
           </div>
@@ -1235,6 +1556,7 @@ export default function App() {
           }
           onClose={() => setSelectedJob(null)}
           onToggleSave={handleToggleSaveJob}
+          onQuickTrackVisit={handleQuickTrackVisit}
           onSubmitApplication={handleSubmitApplication}
         />
 
